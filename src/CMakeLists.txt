@@ -12,8 +12,6 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # DOLFIN_CMAKE_CONFIG_PATH)
 find_package(DOLFINX REQUIRED)
 
-set(CMAKE_BUILD_TYPE "Release")
-
 # Compile UFL files
 add_custom_command(
   OUTPUT Elasticity.c
