@@ -76,9 +76,6 @@ void solve(int argc, char* argv[])
 
   // Assemble problem
   std::shared_ptr<dolfinx::mesh::Mesh> mesh;
-  std::shared_ptr<dolfinx::la::PETScMatrix> A;
-  std::shared_ptr<dolfinx::la::PETScVector> b;
-  std::shared_ptr<dolfinx::fem::Function<PetscScalar>> u;
   if (problem_type == "poisson")
   {
     dolfinx::common::Timer t0("ZZZ Create Mesh");
@@ -89,44 +86,6 @@ void solve(int argc, char* argv[])
     else
       mesh = create_spoke_mesh(MPI_COMM_WORLD, ndofs, strong_scaling, 1, cmap);
     t0.stop();
-
-    // Create mesh entity permutations outside of the assembler
-    dolfinx::common::Timer tperm("ZZZ Create mesh entity permutations");
-    mesh->topology_mutable().create_entity_permutations();
-    tperm.stop();
-
-    // Create Poisson problem
-    auto data = poisson::problem(mesh);
-    A = std::make_shared<dolfinx::la::PETScMatrix>(
-        std::move(std::get<0>(data)));
-    b = std::make_shared<dolfinx::la::PETScVector>(
-        std::move(std::get<1>(data)));
-    u = std::get<2>(data);
-  }
-  else if (problem_type == "elasticity")
-  {
-    dolfinx::common::Timer t0("ZZZ Create Mesh");
-    auto cmap
-        = dolfinx::fem::create_coordinate_map(create_coordinate_map_Elasticity);
-    if (mesh_type == "cube")
-      mesh = create_cube_mesh(MPI_COMM_WORLD, ndofs, strong_scaling, 3, cmap);
-    else
-      mesh = create_spoke_mesh(MPI_COMM_WORLD, ndofs, strong_scaling, 3, cmap);
-    t0.stop();
-
-    // Create mesh entity permutations outside of the assembler
-    dolfinx::common::Timer tperm("ZZZ Create mesh entity permutations");
-    mesh->topology_mutable().create_entity_permutations();
-    tperm.stop();
-
-    // Create elasticity problem. Near-nullspace will be attached to the
-    // linear operator (matrix).
-    auto data = elastic::problem(mesh);
-    A = std::make_shared<dolfinx::la::PETScMatrix>(
-        std::move(std::get<0>(data)));
-    b = std::make_shared<dolfinx::la::PETScVector>(
-        std::move(std::get<1>(data)));
-    u = std::get<2>(data);
   }
   else
     throw std::runtime_error("Unknown problem type: " + problem_type);
@@ -148,49 +107,27 @@ void solve(int argc, char* argv[])
     std::cout << "  Problem type:    " << problem_type << std::endl;
     std::cout << "  Scaling type:    " << scaling_type << std::endl;
     std::cout << "  Num processes:   " << num_processes << std::endl;
-    std::cout << "  Total degrees of freedom:               "
-              << u->function_space()->dim() << std::endl;
-    std::cout << "  Average degrees of freedom per process: "
-              << u->function_space()->dim() / dolfinx::MPI::size(MPI_COMM_WORLD)
+    std::cout << "  Mesh vertices:   "
+              << mesh->topology().index_map(0)->size_global() << std::endl;
+    std::cout << "  Average vertices per process: "
+              << mesh->topology().index_map(0)->size_global()
+                     / dolfinx::MPI::size(MPI_COMM_WORLD)
               << std::endl;
     std::cout
         << "----------------------------------------------------------------"
         << std::endl;
   }
 
-  // Create solver
-  dolfinx::la::PETScKrylovSolver solver(MPI_COMM_WORLD);
-  solver.set_from_options();
-  solver.set_operator(A->mat());
-
-  // Solve
-  dolfinx::common::Timer t5("ZZZ Solve");
-  int num_iter = solver.solve(u->vector(), b->vec());
-
-  t5.stop();
-
-  if (output)
+  dolfinx::common::Timer t6("ZZZ Output");
   {
-    dolfinx::common::Timer t6("ZZZ Output");
-    std::string filename
-        = output_dir + "/solution-" + std::to_string(num_processes) + ".xdmf";
+    std::string filename = "./mesh-" + std::to_string(num_processes) + ".xdmf";
     dolfinx::io::XDMFFile file(MPI_COMM_WORLD, filename, "w");
     file.write_mesh(*mesh);
-    file.write_function(*u, 0.0);
-    t6.stop();
   }
+  t6.stop();
 
   // Display timings
   dolfinx::list_timings(MPI_COMM_WORLD, {dolfinx::TimingType::wall});
-
-  PetscReal norm = 0.0;
-  VecNorm(u->vector(), NORM_2, &norm);
-  // Report number of Krylov iterations
-  if (dolfinx::MPI::rank(MPI_COMM_WORLD) == 0)
-  {
-    std::cout << "*** Number of Krylov iterations: " << num_iter << std::endl;
-    std::cout << "*** Solution norm:  " << norm << std::endl;
-  }
 }
 
 int main(int argc, char* argv[])
