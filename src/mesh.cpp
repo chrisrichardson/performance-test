@@ -91,13 +91,16 @@ create_cube_mesh(MPI_Comm comm, std::size_t target_dofs, bool target_dofs_total,
     }
   }
 
+  const int rank = dolfinx::MPI::rank(MPI_COMM_WORLD);
+
   auto mesh = std::make_shared<dolfinx::mesh::Mesh>(
       dolfinx::generation::BoxMesh::create(
           comm,
           {Eigen::Vector3d(0.0, 0.0, 0.0), Eigen::Vector3d(1.0, 1.0, 1.0)},
           {Nx, Ny, Nz}, element, dolfinx::mesh::GhostMode::none));
 
-  if (dolfinx::MPI::rank(mesh->mpi_comm()) == 0)
+  
+  if (rank == 0)
   {
     std::cout << "UnitCube (" << Nx << "x" << Ny << "x" << Nz
               << ") to be refined " << r << " times\n";

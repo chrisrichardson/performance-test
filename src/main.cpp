@@ -23,7 +23,9 @@
 #include <dolfinx/la/PETScMatrix.h>
 #include <dolfinx/la/PETScVector.h>
 #include <string>
+#include <thread>
 #include <utility>
+#include "mem.h"
 
 namespace po = boost::program_options;
 
@@ -107,6 +109,8 @@ void solve(int argc, char* argv[])
     std::cout << "  Problem type:    " << problem_type << std::endl;
     std::cout << "  Scaling type:    " << scaling_type << std::endl;
     std::cout << "  Num processes:   " << num_processes << std::endl;
+    std::cout << "  Mesh cells:   "
+              << mesh->topology().index_map(3)->size_global() << std::endl;
     std::cout << "  Mesh vertices:   "
               << mesh->topology().index_map(0)->size_global() << std::endl;
     std::cout << "  Average vertices per process: "
@@ -119,6 +123,7 @@ void solve(int argc, char* argv[])
   }
 
   dolfinx::common::Timer t6("ZZZ Output");
+  if (false)
   {
     std::string filename = "./mesh-" + std::to_string(num_processes) + ".xdmf";
     dolfinx::io::XDMFFile file(MPI_COMM_WORLD, filename, "w");
@@ -135,8 +140,20 @@ int main(int argc, char* argv[])
   dolfinx::common::subsystem::init_logging(argc, argv);
   dolfinx::common::subsystem::init_mpi();
   dolfinx::common::subsystem::init_petsc(argc, argv);
+  loguru::g_stderr_verbosity = loguru::Verbosity_INFO;
 
-  solve(argc, argv);
+  const int rank = dolfinx::MPI::rank(MPI_COMM_WORLD);
+  if (rank == 0)
+  { 
+    bool quit_flag = false;
+    std::thread mem_thread(process_mem_usage, std::ref(quit_flag));
+    solve(argc, argv);
+    quit_flag = true;
+    mem_thread.join();
+  }
+  else
+    solve(argc, argv);
+
 
   dolfinx::common::subsystem::finalize_petsc();
   dolfinx::common::subsystem::finalize_mpi();
