@@ -5,6 +5,7 @@
 #include "mesh.h"
 #include <dolfinx/common/MPI.h>
 #include <dolfinx/common/log.h>
+#include <dolfinx/common/IndexMap.h>
 #include <dolfinx/common/types.h>
 #include <dolfinx/fem/CoordinateElement.h>
 #include <dolfinx/fem/ElementDofLayout.h>
@@ -14,6 +15,7 @@
 #include <dolfinx/mesh/MeshTags.h>
 #include <dolfinx/mesh/cell_types.h>
 #include <dolfinx/refinement/refine.h>
+#include <dolfinx/refinement/plaza.h>
 #include <memory>
 
 namespace
@@ -105,12 +107,49 @@ create_cube_mesh(MPI_Comm comm, std::size_t target_dofs, bool target_dofs_total,
     std::cout << "UnitCube (" << Nx << "x" << Ny << "x" << Nz
               << ") to be refined " << r << " times\n";
   }
-
+  
   for (int i = 0; i < r; ++i)
   {
     mesh->topology_mutable().create_connectivity(3, 1);
-    mesh = std::make_shared<dolfinx::mesh::Mesh>(
-        dolfinx::refinement::refine(*mesh, false));
+    auto [cells, verts, parent_cell] = dolfinx::refinement::plaza::compute_refinement_data(*mesh);
+    auto cmap = mesh->geometry().cmap();
+  
+    // All cells should go to their currently assigned ranks (no change)
+    // but must also be sent to their ghost destinations (TODO)
+
+    std::shared_ptr<const dolfinx::common::IndexMap> map_facet = mesh->topology().index_map(2);
+    auto c_to_f = mesh->topology().connectivity(3, 2);
+    auto shared_facets = map_facet->compute_shared_indices();
+    
+    std::vector<std::int32_t> destinations;
+    destinations.reserve(cells.num_nodes());
+    std::vector<std::int32_t> dest_offsets = {0};
+    dest_offsets.reserve(cells.num_nodes());
+    
+    for (int i = 0; i < cells.num_nodes(); ++i)
+    {
+      destinations.push_back(rank);
+      auto facets = c_to_f->links(parent_cell[i]);
+      for (const std::int64_t& f : facets)
+      {
+        const auto it = shared_facets.find(f);
+        if (it != shared_facets.end())
+        {
+          for (int p : it->second)
+            destinations.push_back(p);
+        }
+      }
+      dest_offsets.push_back(destinations.size());
+    }
+    dolfinx::graph::AdjacencyList<std::int32_t> dests(std::move(destinations),
+                                                      std::move(dest_offsets));
+
+    auto partitioner
+      = [&dests](MPI_Comm mpi_comm, int, const dolfinx::mesh::CellType,
+                 const dolfinx::graph::AdjacencyList<std::int64_t>& cell_topology,
+                 dolfinx::mesh::GhostMode) { return dests; };
+    mesh.reset();
+    mesh = std::make_shared<dolfinx::mesh::Mesh>(dolfinx::mesh::create_mesh(MPI_COMM_WORLD, cells, cmap, verts, dolfinx::mesh::GhostMode::none, partitioner));
   }
 
   return mesh;

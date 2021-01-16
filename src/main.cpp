@@ -137,9 +137,12 @@ void solve(int argc, char* argv[])
 
 int main(int argc, char* argv[])
 {
-  dolfinx::common::subsystem::init_logging(argc, argv);
   dolfinx::common::subsystem::init_mpi();
+  dolfinx::common::subsystem::init_logging(argc, argv);
   dolfinx::common::subsystem::init_petsc(argc, argv);
+  std::string thread_name = "RANK: " 
+    + std::to_string(dolfinx::MPI::rank(MPI_COMM_WORLD));
+  loguru::set_thread_name(thread_name.c_str());
   loguru::g_stderr_verbosity = loguru::Verbosity_INFO;
 
   const int rank = dolfinx::MPI::rank(MPI_COMM_WORLD);
@@ -153,7 +156,6 @@ int main(int argc, char* argv[])
   }
   else
     solve(argc, argv);
-
 
   dolfinx::common::subsystem::finalize_petsc();
   dolfinx::common::subsystem::finalize_mpi();
