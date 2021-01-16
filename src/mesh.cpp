@@ -143,7 +143,8 @@ create_cube_mesh(MPI_Comm comm, std::size_t target_dofs, bool target_dofs_total,
     }
     dolfinx::graph::AdjacencyList<std::int32_t> dests(std::move(destinations),
                                                       std::move(dest_offsets));
-
+    std::vector<std::int32_t>().swap(parent_cell);
+    
     auto partitioner
       = [&dests](MPI_Comm mpi_comm, int, const dolfinx::mesh::CellType,
                  const dolfinx::graph::AdjacencyList<std::int64_t>& cell_topology,
